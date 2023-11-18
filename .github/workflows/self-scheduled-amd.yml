@@ -65,7 +65,7 @@ jobs:
     runs-on: [self-hosted, docker-gpu, amd-gpu, '${{ matrix.machine_type }}', '${{ inputs.gpu_flavor }}']
     container:
       image: huggingface/transformers-pytorch-amd-gpu
-      options: --device /dev/kfd --device /dev/dri --env HIP_VISIBLE_DEVICES --env ROCR_VISIBLE_DEVICES --shm-size "16gb" --ipc host -v /mnt/cache/.cache/huggingface:/mnt/cache/
+      options: --device /dev/kfd --device /dev/dri --env ROCR_VISIBLE_DEVICES --shm-size "16gb" --ipc host -v /mnt/cache/.cache/huggingface:/mnt/cache/
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -99,7 +99,6 @@ jobs:
           rocminfo  | grep "Agent" -A 14
       - name: Show ROCR environment
         run: |
-          echo "HIP: $HIP_VISIBLE_DEVICES"
           echo "ROCR: $ROCR_VISIBLE_DEVICES"
 
       - name: Environment
