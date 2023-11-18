@@ -14,6 +14,8 @@ RUN apt update && \
     apt clean && \
     rm -rf /var/lib/apt/lists/*
 
+RUN python3 -m pip install --no-cache-dir --upgrade pip
+
 ARG REF=main
 WORKDIR /
 RUN git clone https://github.com/huggingface/transformers && cd transformers && git checkout $REF
