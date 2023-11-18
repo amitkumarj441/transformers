@@ -26,7 +26,7 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools ninja git+htt
 
 RUN python3 -m pip uninstall -y tensorflow flax
 
-RUN python3 -m pip uninstall -y transformers && cd transformers && python3 -m pip install --no-cache-dir -e ./transformers
+RUN python3 -m pip uninstall -y transformers && cd transformers && python3 -m pip install --no-cache-dir -e .
 
 # When installing in editable mode, `transformers` is not recognized as a package.
 # this line must be added in order for python to be aware of transformers.
