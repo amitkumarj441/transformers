@@ -21,14 +21,13 @@ WORKDIR /
 RUN git clone https://github.com/huggingface/transformers && cd transformers && git checkout $REF
 RUN cd transformers && python3 -m pip install --no-cache-dir -e .[dev-torch,testing,video]
 
-RUN python3 -m pip install torch==$PYTORCH torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm$ROCM
+RUN python3 -m pip install torch==$PYTORCH torchvision==$TORCH_VISION torchaudio==$TORCH_AUDIO --index-url https://download.pytorch.org/whl/rocm$ROCM
 
 RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools ninja git+https://github.com/facebookresearch/detectron2.git pytesseract "itsdangerous<2.1.0"
 
 
 RUN python3 -m pip uninstall -y tensorflow flax
 
-RUN python3 -m pip uninstall -y transformers && cd transformers && python3 -m pip install --no-cache-dir -e .
 
 # When installing in editable mode, `transformers` is not recognized as a package.
 # this line must be added in order for python to be aware of transformers.
