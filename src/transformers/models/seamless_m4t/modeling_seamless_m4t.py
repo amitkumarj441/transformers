@@ -50,14 +50,11 @@ logger = logging.get_logger(__name__)
 _CHECKPOINT_FOR_DOC = "facebook/hf-seamless-m4t-medium"
 _CONFIG_FOR_DOC = "SeamlessM4TConfig"
 
-SEAMLESS_M4T_PRETRAINED_MODEL_ARCHIVE_LIST = [
-    "facebook/hf-seamless-m4t-medium",
-    # See all SeamlessM4T models at https://huggingface.co/models?filter=seamless_m4t
-]
 
-SPEECHT5_PRETRAINED_HIFIGAN_CONFIG_ARCHIVE_MAP = {
-    "microsoft/speecht5_hifigan": "https://huggingface.co/microsoft/speecht5_hifigan/resolve/main/config.json",
-}
+from ..deprecated._archive_maps import (  # noqa: F401, E402
+    SEAMLESS_M4T_PRETRAINED_MODEL_ARCHIVE_LIST,  # noqa: F401, E402
+    SPEECHT5_PRETRAINED_HIFIGAN_CONFIG_ARCHIVE_MAP,  # noqa: F401, E402
+)
 
 
 @dataclass
@@ -159,25 +156,6 @@ SEAMLESS_M4T_INPUTS_DOCSTRING_LAST_PART = r"""
             If you want to change padding behavior, you should read [`modeling_bart._prepare_decoder_attention_mask`]
             and modify to your needs. See diagram 1 in [the paper](https://arxiv.org/abs/1910.13461) for more
             information on the default strategy.
-        head_mask (`torch.Tensor` of shape `(encoder_layers, encoder_attention_heads)`, *optional*):
-            Mask to nullify selected heads of the attention modules in the encoder. Mask values selected in `[0, 1]`:
-
-            - 1 indicates the head is **not masked**,
-            - 0 indicates the head is **masked**.
-
-        decoder_head_mask (`torch.Tensor` of shape `(decoder_layers, decoder_attention_heads)`, *optional*):
-            Mask to nullify selected heads of the attention modules in the decoder. Mask values selected in `[0, 1]`:
-
-            - 1 indicates the head is **not masked**,
-            - 0 indicates the head is **masked**.
-
-        cross_attn_head_mask (`torch.Tensor` of shape `(decoder_layers, decoder_attention_heads)`, *optional*):
-            Mask to nullify selected heads of the cross-attention modules in the decoder. Mask values selected in `[0,
-            1]`:
-
-            - 1 indicates the head is **not masked**,
-            - 0 indicates the head is **masked**.
-
         encoder_outputs (`tuple(tuple(torch.FloatTensor)`, *optional*):
             Tuple consists of (`last_hidden_state`, *optional*: `hidden_states`, *optional*: `attentions`)
             `last_hidden_state` of shape `(batch_size, sequence_length, hidden_size)`, *optional*) is a sequence of
@@ -384,7 +362,7 @@ class SeamlessM4TConformerRotaryPositionalEmbedding(nn.Module):
         dim = config.hidden_size // config.speech_encoder_attention_heads
         base = config.rotary_embedding_base
 
-        inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
+        inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2, dtype=torch.int64).float() / dim))
         self.register_buffer("inv_freq", inv_freq)
         self.cached_sequence_length = None
         self.cached_rotary_positional_embedding = None
@@ -433,9 +411,9 @@ class SeamlessM4TConformerRelPositionalEmbedding(nn.Module):
         # are to the left (i>j) and negative relative positions otherwise (i<j).
         pe_positive = torch.zeros(x.size(1), self.d_model)
         pe_negative = torch.zeros(x.size(1), self.d_model)
-        position = torch.arange(0, x.size(1), dtype=torch.float32).unsqueeze(1)
+        position = torch.arange(0, x.size(1), dtype=torch.int64).float().unsqueeze(1)
         div_term = torch.exp(
-            torch.arange(0, self.d_model, 2, dtype=torch.float32) * -(math.log(10000.0) / self.d_model)
+            torch.arange(0, self.d_model, 2, dtype=torch.int64).float() * -(math.log(10000.0) / self.d_model)
         )
         pe_positive[:, 0::2] = torch.sin(position * div_term)
         pe_positive[:, 1::2] = torch.cos(position * div_term)
@@ -1040,8 +1018,8 @@ class SeamlessM4TSinusoidalPositionalEmbedding(nn.Module):
         """
         half_dim = embedding_dim // 2
         emb = math.log(10000) / (half_dim - 1)
-        emb = torch.exp(torch.arange(half_dim, dtype=torch.float) * -emb)
-        emb = torch.arange(num_embeddings, dtype=torch.float).unsqueeze(1) * emb.unsqueeze(0)
+        emb = torch.exp(torch.arange(half_dim, dtype=torch.int64).float() * -emb)
+        emb = torch.arange(num_embeddings, dtype=torch.int64).float().unsqueeze(1) * emb.unsqueeze(0)
         emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1).view(num_embeddings, -1)
         if embedding_dim % 2 == 1:
             # zero pad
@@ -1090,10 +1068,10 @@ class SeamlessM4TSinusoidalPositionalEmbedding(nn.Module):
         return position_ids.unsqueeze(0).expand(input_shape).contiguous() + past_key_values_length
 
 
-# Copied from transformers.models.bart.modeling_bart.BartAttention with Bart->SeamlessM4T,key_value_states->encoder_hidden_states
 class SeamlessM4TAttention(nn.Module):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
+    # Copied from transformers.models.bart.modeling_bart.BartAttention.__init__ with Bart->SeamlessM4T
     def __init__(
         self,
         embed_dim: int,
@@ -1134,7 +1112,6 @@ class SeamlessM4TAttention(nn.Module):
         encoder_hidden_states: Optional[torch.Tensor] = None,
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
         attention_mask: Optional[torch.Tensor] = None,
-        layer_head_mask: Optional[torch.Tensor] = None,
         output_attentions: bool = False,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         """Input shape: Batch x Time x Channel"""
@@ -1207,15 +1184,6 @@ class SeamlessM4TAttention(nn.Module):
             attn_weights = attn_weights.view(bsz * self.num_heads, tgt_len, src_len)
 
         attn_weights = nn.functional.softmax(attn_weights, dim=-1)
-
-        if layer_head_mask is not None:
-            if layer_head_mask.size() != (self.num_heads,):
-                raise ValueError(
-                    f"Head mask for a single layer should be of size {(self.num_heads,)}, but is"
-                    f" {layer_head_mask.size()}"
-                )
-            attn_weights = layer_head_mask.view(1, -1, 1, 1) * attn_weights.view(bsz, self.num_heads, tgt_len, src_len)
-            attn_weights = attn_weights.view(bsz * self.num_heads, tgt_len, src_len)
 
         if output_attentions:
             # this operation is a bit awkward, but it's required to
@@ -1298,7 +1266,6 @@ class SeamlessM4TEncoderLayer(nn.Module):
         self,
         hidden_states: torch.Tensor,
         attention_mask: torch.Tensor,
-        layer_head_mask: torch.Tensor,
         output_attentions: bool = False,
     ) -> torch.Tensor:
         """
@@ -1308,15 +1275,12 @@ class SeamlessM4TEncoderLayer(nn.Module):
             attention_mask (`torch.FloatTensor`):
                 attention mask of size `(batch, 1, tgt_len, src_len)` where padding elements are indicated by very
                 large negative values.
-            layer_head_mask (`torch.FloatTensor`): mask for attention heads in a given layer of size
-                `(encoder_attention_heads,)`.
         """
         residual = hidden_states
         hidden_states = self.self_attn_layer_norm(hidden_states)
         hidden_states, attn_weights, _ = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
-            layer_head_mask=layer_head_mask,
             output_attentions=output_attentions,
         )
         hidden_states = self.attn_dropout(hidden_states)
@@ -1375,8 +1339,6 @@ class SeamlessM4TDecoderLayer(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         encoder_hidden_states: Optional[torch.Tensor] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
-        layer_head_mask: Optional[torch.Tensor] = None,
-        cross_attn_layer_head_mask: Optional[torch.Tensor] = None,
         past_key_value: Optional[Tuple[torch.Tensor]] = None,
         output_attentions: Optional[bool] = False,
         use_cache: Optional[bool] = True,
@@ -1393,10 +1355,6 @@ class SeamlessM4TDecoderLayer(nn.Module):
             encoder_attention_mask (`torch.FloatTensor`):
                 encoder attention mask of size `(batch, 1, tgt_len, src_len)` where padding elements are indicated by
                 very large negative values.
-            layer_head_mask (`torch.FloatTensor`):
-                mask for attention heads in a given layer of size `(encoder_attention_heads,)`.
-            cross_attn_layer_head_mask (`torch.FloatTensor`):
-                mask for cross-attention heads in a given layer of size `(decoder_attention_heads,)`.
             past_key_value (`Tuple(torch.FloatTensor)`):
                 cached past key and value projection states
             output_attentions (`bool`, *optional*):
@@ -1414,7 +1372,6 @@ class SeamlessM4TDecoderLayer(nn.Module):
             hidden_states=hidden_states,
             past_key_value=self_attn_past_key_value,
             attention_mask=attention_mask,
-            layer_head_mask=layer_head_mask,
             output_attentions=output_attentions,
         )
         hidden_states = self.attn_dropout(hidden_states)
@@ -1435,7 +1392,6 @@ class SeamlessM4TDecoderLayer(nn.Module):
                 encoder_hidden_states=encoder_hidden_states,
                 past_key_value=cross_attn_past_key_value,
                 attention_mask=encoder_attention_mask,
-                layer_head_mask=cross_attn_layer_head_mask,
                 output_attentions=output_attentions,
             )
             hidden_states = self.attn_dropout(hidden_states)
@@ -1710,7 +1666,6 @@ class SeamlessM4TEncoder(SeamlessM4TPreTrainedModel):
         self,
         input_ids: torch.LongTensor = None,
         attention_mask: Optional[torch.Tensor] = None,
-        head_mask: Optional[torch.Tensor] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
@@ -1734,12 +1689,6 @@ class SeamlessM4TEncoder(SeamlessM4TPreTrainedModel):
                 - 0 for tokens that are **masked**.
 
                 [What are attention masks?](../glossary#attention-mask)
-            head_mask (`torch.Tensor` of shape `(encoder_layers, encoder_attention_heads)`, *optional*):
-                Mask to nullify selected heads of the attention modules. Mask values selected in `[0, 1]`:
-
-                - 1 indicates the head is **not masked**,
-                - 0 indicates the head is **masked**.
-
             inputs_embeds (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`, *optional*):
                 Optionally, instead of passing `input_ids` you can choose to directly pass an embedded representation.
                 This is useful if you want more control over how to convert `input_ids` indices into associated vectors
@@ -1796,13 +1745,6 @@ class SeamlessM4TEncoder(SeamlessM4TPreTrainedModel):
         encoder_states = () if output_hidden_states else None
         all_attentions = () if output_attentions else None
 
-        # check if head_mask has a correct number of layers specified if desired
-        if head_mask is not None:
-            if head_mask.size()[0] != len(self.layers):
-                raise ValueError(
-                    f"The head_mask should be specified for {len(self.layers)} layers, but it is for"
-                    f" {head_mask.size()[0]}."
-                )
         for idx, encoder_layer in enumerate(self.layers):
             if output_hidden_states:
                 encoder_states = encoder_states + (hidden_states,)
@@ -1821,14 +1763,12 @@ class SeamlessM4TEncoder(SeamlessM4TPreTrainedModel):
                         encoder_layer.forward,
                         hidden_states,
                         attention_mask,
-                        (head_mask[idx] if head_mask is not None else None),
                         output_attentions,
                     )
                 else:
                     layer_outputs = encoder_layer(
                         hidden_states,
                         attention_mask,
-                        layer_head_mask=(head_mask[idx] if head_mask is not None else None),
                         output_attentions=output_attentions,
                     )
 
@@ -1912,8 +1852,6 @@ class SeamlessM4TDecoder(SeamlessM4TPreTrainedModel):
         attention_mask: Optional[torch.Tensor] = None,
         encoder_hidden_states: Optional[torch.FloatTensor] = None,
         encoder_attention_mask: Optional[torch.LongTensor] = None,
-        head_mask: Optional[torch.Tensor] = None,
-        cross_attn_head_mask: Optional[torch.Tensor] = None,
         past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
         use_cache: Optional[bool] = None,
@@ -1949,19 +1887,6 @@ class SeamlessM4TDecoder(SeamlessM4TPreTrainedModel):
                 - 0 for tokens that are **masked**.
 
                 [What are attention masks?](../glossary#attention-mask)
-            head_mask (`torch.Tensor` of shape `(decoder_layers, decoder_attention_heads)`, *optional*):
-                Mask to nullify selected heads of the attention modules. Mask values selected in `[0, 1]`:
-
-                - 1 indicates the head is **not masked**,
-                - 0 indicates the head is **masked**.
-
-            cross_attn_head_mask (`torch.Tensor` of shape `(decoder_layers, decoder_attention_heads)`, *optional*):
-                Mask to nullify selected heads of the cross-attention modules in the decoder to avoid performing
-                cross-attention on hidden heads. Mask values selected in `[0, 1]`:
-
-                - 1 indicates the head is **not masked**,
-                - 0 indicates the head is **masked**.
-
             past_key_values (`tuple(tuple(torch.FloatTensor))`, *optional*, returned when `use_cache=True` is passed or when `config.use_cache=True`):
                 Tuple of `tuple(torch.FloatTensor)` of length `config.n_layers`, with each tuple having 2 tensors of
                 shape `(batch_size, num_heads, sequence_length, embed_size_per_head)`) and 2 additional tensors of
@@ -1972,11 +1897,11 @@ class SeamlessM4TDecoder(SeamlessM4TPreTrainedModel):
 
                 If `past_key_values` are used, the user can optionally input only the last `decoder_input_ids` (those
                 that don't have their past key value states given to this model) of shape `(batch_size, 1)` instead of
-                all `decoder_input_ids` of shape `(batch_size, sequence_length)`. inputs_embeds (`torch.FloatTensor` of
-                shape `(batch_size, sequence_length, hidden_size)`, *optional*): Optionally, instead of passing
-                `input_ids` you can choose to directly pass an embedded representation. This is useful if you want more
-                control over how to convert `input_ids` indices into associated vectors than the model's internal
-                embedding lookup matrix.
+                all `decoder_input_ids` of shape `(batch_size, sequence_length)`.
+            inputs_embeds (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`, *optional*):
+                Optionally, instead of passing `input_ids` you can choose to directly pass an embedded representation.
+                This is useful if you want more control over how to convert `input_ids` indices into associated vectors
+                than the model's internal embedding lookup matrix.
             output_attentions (`bool`, *optional*):
                 Whether or not to return the attentions tensors of all attention layers. See `attentions` under
                 returned tensors for more detail.
@@ -2043,14 +1968,6 @@ class SeamlessM4TDecoder(SeamlessM4TPreTrainedModel):
         all_cross_attentions = () if (output_attentions and encoder_hidden_states is not None) else None
         next_decoder_cache = () if use_cache else None
 
-        # check if head_mask/cross_attn_head_mask has a correct number of layers specified if desired
-        for attn_mask, mask_name in zip([head_mask, cross_attn_head_mask], ["head_mask", "cross_attn_head_mask"]):
-            if attn_mask is not None:
-                if attn_mask.size()[0] != len(self.layers):
-                    raise ValueError(
-                        f"The `{mask_name}` should be specified for {len(self.layers)} layers, but it is for"
-                        f" {attn_mask.size()[0]}."
-                    )
         for idx, decoder_layer in enumerate(self.layers):
             # add LayerDrop (see https://arxiv.org/abs/1909.11556 for description)
             if output_hidden_states:
@@ -2069,8 +1986,6 @@ class SeamlessM4TDecoder(SeamlessM4TPreTrainedModel):
                     attention_mask,
                     encoder_hidden_states,
                     encoder_attention_mask,
-                    head_mask[idx] if head_mask is not None else None,
-                    cross_attn_head_mask[idx] if cross_attn_head_mask is not None else None,
                     None,
                     output_attentions,
                     use_cache,
@@ -2081,10 +1996,6 @@ class SeamlessM4TDecoder(SeamlessM4TPreTrainedModel):
                     attention_mask=attention_mask,
                     encoder_hidden_states=encoder_hidden_states,
                     encoder_attention_mask=encoder_attention_mask,
-                    layer_head_mask=(head_mask[idx] if head_mask is not None else None),
-                    cross_attn_layer_head_mask=(
-                        cross_attn_head_mask[idx] if cross_attn_head_mask is not None else None
-                    ),
                     past_key_value=past_key_value,
                     output_attentions=output_attentions,
                     use_cache=use_cache,
@@ -2143,16 +2054,12 @@ class SeamlessM4TTextToUnitModel(SeamlessM4TPreTrainedModel):
         # Initialize weights and apply final processing
         self.post_init()
 
-    # Copied from transformers.models.m2m_100.modeling_m2m_100.M2M100Model.forward
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         decoder_input_ids: Optional[torch.LongTensor] = None,
         decoder_attention_mask: Optional[torch.LongTensor] = None,
-        head_mask: Optional[torch.Tensor] = None,
-        decoder_head_mask: Optional[torch.Tensor] = None,
-        cross_attn_head_mask: Optional[torch.Tensor] = None,
         encoder_outputs: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
@@ -2173,7 +2080,6 @@ class SeamlessM4TTextToUnitModel(SeamlessM4TPreTrainedModel):
             encoder_outputs = self.encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                head_mask=head_mask,
                 inputs_embeds=inputs_embeds,
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
@@ -2193,8 +2099,6 @@ class SeamlessM4TTextToUnitModel(SeamlessM4TPreTrainedModel):
             attention_mask=decoder_attention_mask,
             encoder_hidden_states=encoder_outputs[0],
             encoder_attention_mask=attention_mask,
-            head_mask=decoder_head_mask,
-            cross_attn_head_mask=cross_attn_head_mask,
             past_key_values=past_key_values,
             inputs_embeds=decoder_inputs_embeds,
             use_cache=use_cache,
@@ -2278,9 +2182,6 @@ class SeamlessM4TTextToUnitForConditionalGeneration(SeamlessM4TPreTrainedModel):
         attention_mask: Optional[torch.Tensor] = None,
         decoder_input_ids: Optional[torch.LongTensor] = None,
         decoder_attention_mask: Optional[torch.LongTensor] = None,
-        head_mask: Optional[torch.Tensor] = None,
-        decoder_head_mask: Optional[torch.Tensor] = None,
-        cross_attn_head_mask: Optional[torch.Tensor] = None,
         encoder_outputs: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
@@ -2308,9 +2209,6 @@ class SeamlessM4TTextToUnitForConditionalGeneration(SeamlessM4TPreTrainedModel):
             decoder_input_ids=decoder_input_ids,
             encoder_outputs=encoder_outputs,
             decoder_attention_mask=decoder_attention_mask,
-            head_mask=head_mask,
-            decoder_head_mask=decoder_head_mask,
-            cross_attn_head_mask=cross_attn_head_mask,
             past_key_values=past_key_values,
             inputs_embeds=inputs_embeds,
             decoder_inputs_embeds=decoder_inputs_embeds,
@@ -2348,9 +2246,6 @@ class SeamlessM4TTextToUnitForConditionalGeneration(SeamlessM4TPreTrainedModel):
         decoder_input_ids,
         past_key_values=None,
         attention_mask=None,
-        head_mask=None,
-        decoder_head_mask=None,
-        cross_attn_head_mask=None,
         use_cache=None,
         encoder_outputs=None,
         **kwargs,
@@ -2365,9 +2260,6 @@ class SeamlessM4TTextToUnitForConditionalGeneration(SeamlessM4TPreTrainedModel):
             "past_key_values": past_key_values,
             "decoder_input_ids": decoder_input_ids,
             "attention_mask": attention_mask,
-            "head_mask": head_mask,
-            "decoder_head_mask": decoder_head_mask,
-            "cross_attn_head_mask": cross_attn_head_mask,
             "use_cache": use_cache,
         }
 
@@ -2798,9 +2690,6 @@ class SeamlessM4TForTextToText(SeamlessM4TPreTrainedModel):
         attention_mask: Optional[torch.Tensor] = None,
         decoder_input_ids: Optional[torch.LongTensor] = None,
         decoder_attention_mask: Optional[torch.LongTensor] = None,
-        head_mask: Optional[torch.Tensor] = None,
-        decoder_head_mask: Optional[torch.Tensor] = None,
-        cross_attn_head_mask: Optional[torch.Tensor] = None,
         encoder_outputs: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
@@ -2832,7 +2721,6 @@ class SeamlessM4TForTextToText(SeamlessM4TPreTrainedModel):
             encoder_outputs = self.text_encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                head_mask=head_mask,
                 inputs_embeds=inputs_embeds,
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
@@ -2854,8 +2742,6 @@ class SeamlessM4TForTextToText(SeamlessM4TPreTrainedModel):
             attention_mask=decoder_attention_mask,
             encoder_hidden_states=encoder_outputs[0],
             encoder_attention_mask=encoder_attention_mask,
-            head_mask=decoder_head_mask,
-            cross_attn_head_mask=cross_attn_head_mask,
             past_key_values=past_key_values,
             inputs_embeds=decoder_inputs_embeds,
             use_cache=use_cache,
@@ -2956,11 +2842,8 @@ class SeamlessM4TForTextToText(SeamlessM4TPreTrainedModel):
             [`~utils.ModelOutput`] or `torch.LongTensor`: A [`~utils.ModelOutput`] (if `return_dict_in_generate=True`
             or when `config.return_dict_in_generate=True`) or a `torch.FloatTensor`. The possible
             [`~utils.ModelOutput`] types are:
-
-                - [`~generation.GreedySearchEncoderDecoderOutput`],
-                - [`~generation.SampleEncoderDecoderOutput`],
-                - [`~generation.BeamSearchEncoderDecoderOutput`],
-                - [`~generation.BeamSampleEncoderDecoderOutput`]
+                - [`~generation.GenerateEncoderDecoderOutput`],
+                - [`~generation.GenerateBeamEncoderDecoderOutput`]
         """
         # prepare text_decoder_input_ids
         text_decoder_input_ids = kwargs.pop("decoder_input_ids", None)
@@ -3007,9 +2890,6 @@ class SeamlessM4TForTextToText(SeamlessM4TPreTrainedModel):
         decoder_input_ids,
         past_key_values=None,
         attention_mask=None,
-        head_mask=None,
-        decoder_head_mask=None,
-        cross_attn_head_mask=None,
         use_cache=None,
         encoder_outputs=None,
         **kwargs,
@@ -3024,9 +2904,6 @@ class SeamlessM4TForTextToText(SeamlessM4TPreTrainedModel):
             "past_key_values": past_key_values,
             "decoder_input_ids": decoder_input_ids,
             "attention_mask": attention_mask,
-            "head_mask": head_mask,
-            "decoder_head_mask": decoder_head_mask,
-            "cross_attn_head_mask": cross_attn_head_mask,
             "use_cache": use_cache,
         }
 
@@ -3095,9 +2972,6 @@ class SeamlessM4TForSpeechToText(SeamlessM4TPreTrainedModel):
         attention_mask: Optional[torch.Tensor] = None,
         decoder_input_ids: Optional[torch.LongTensor] = None,
         decoder_attention_mask: Optional[torch.LongTensor] = None,
-        head_mask: Optional[torch.Tensor] = None,
-        decoder_head_mask: Optional[torch.Tensor] = None,
-        cross_attn_head_mask: Optional[torch.Tensor] = None,
         encoder_outputs: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
@@ -3129,7 +3003,6 @@ class SeamlessM4TForSpeechToText(SeamlessM4TPreTrainedModel):
             encoder_outputs = self.speech_encoder(
                 input_features=input_features,
                 attention_mask=attention_mask,
-                head_mask=head_mask,
                 inputs_embeds=inputs_embeds,
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
@@ -3158,8 +3031,6 @@ class SeamlessM4TForSpeechToText(SeamlessM4TPreTrainedModel):
             attention_mask=decoder_attention_mask,
             encoder_hidden_states=encoder_outputs[0],
             encoder_attention_mask=encoder_attention_mask,
-            head_mask=decoder_head_mask,
-            cross_attn_head_mask=cross_attn_head_mask,
             past_key_values=past_key_values,
             inputs_embeds=decoder_inputs_embeds,
             use_cache=use_cache,
@@ -3257,11 +3128,8 @@ class SeamlessM4TForSpeechToText(SeamlessM4TPreTrainedModel):
             [`~utils.ModelOutput`] or `torch.LongTensor`: A [`~utils.ModelOutput`] (if `return_dict_in_generate=True`
             or when `config.return_dict_in_generate=True`) or a `torch.FloatTensor`. The possible
             [`~utils.ModelOutput`] types are:
-
-                - [`~generation.GreedySearchEncoderDecoderOutput`],
-                - [`~generation.SampleEncoderDecoderOutput`],
-                - [`~generation.BeamSearchEncoderDecoderOutput`],
-                - [`~generation.BeamSampleEncoderDecoderOutput`]
+                - [`~generation.GenerateEncoderDecoderOutput`],
+                - [`~generation.GenerateBeamEncoderDecoderOutput`]
         """
         text_decoder_input_ids = kwargs.pop("decoder_input_ids", None)
         # overwrite text_decoder_input_ids if tgt_lang is passed. The latter gets priority over decoder_input_ids.
@@ -3312,9 +3180,6 @@ class SeamlessM4TForSpeechToText(SeamlessM4TPreTrainedModel):
         decoder_input_ids,
         past_key_values=None,
         attention_mask=None,
-        head_mask=None,
-        decoder_head_mask=None,
-        cross_attn_head_mask=None,
         use_cache=None,
         encoder_outputs=None,
         **kwargs,
@@ -3329,9 +3194,6 @@ class SeamlessM4TForSpeechToText(SeamlessM4TPreTrainedModel):
             "past_key_values": past_key_values,
             "decoder_input_ids": decoder_input_ids,
             "attention_mask": attention_mask,
-            "head_mask": head_mask,
-            "decoder_head_mask": decoder_head_mask,
-            "cross_attn_head_mask": cross_attn_head_mask,
             "use_cache": use_cache,
         }
 
@@ -3408,9 +3270,6 @@ class SeamlessM4TForTextToSpeech(SeamlessM4TPreTrainedModel):
         attention_mask: Optional[torch.Tensor] = None,
         decoder_input_ids: Optional[torch.LongTensor] = None,
         decoder_attention_mask: Optional[torch.LongTensor] = None,
-        head_mask: Optional[torch.Tensor] = None,
-        decoder_head_mask: Optional[torch.Tensor] = None,
-        cross_attn_head_mask: Optional[torch.Tensor] = None,
         encoder_outputs: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
@@ -3447,7 +3306,6 @@ class SeamlessM4TForTextToSpeech(SeamlessM4TPreTrainedModel):
             encoder_outputs = self.text_encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                head_mask=head_mask,
                 inputs_embeds=inputs_embeds,
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
@@ -3469,8 +3327,6 @@ class SeamlessM4TForTextToSpeech(SeamlessM4TPreTrainedModel):
             attention_mask=decoder_attention_mask,
             encoder_hidden_states=encoder_outputs[0],
             encoder_attention_mask=encoder_attention_mask,
-            head_mask=decoder_head_mask,
-            cross_attn_head_mask=cross_attn_head_mask,
             past_key_values=past_key_values,
             inputs_embeds=decoder_inputs_embeds,
             use_cache=use_cache,
@@ -3624,8 +3480,6 @@ class SeamlessM4TForTextToSpeech(SeamlessM4TPreTrainedModel):
             input_ids=sequences,
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=attention_mask,
-            head_mask=kwargs_text.get("decoder_head_mask"),
-            cross_attn_head_mask=kwargs_text.get("cross_attn_head_mask"),
         ).last_hidden_state
 
         pad_token_id = self.generation_config.pad_token_id
@@ -3642,7 +3496,6 @@ class SeamlessM4TForTextToSpeech(SeamlessM4TPreTrainedModel):
             self.device
         )
         kwargs_speech["decoder_input_ids"] = t2u_decoder_input_ids
-
         # second generation
         unit_ids = self.t2u_model.generate(inputs_embeds=t2u_input_embeds, **kwargs_speech)
         output_unit_ids = unit_ids.detach().clone()
@@ -3678,9 +3531,6 @@ class SeamlessM4TForTextToSpeech(SeamlessM4TPreTrainedModel):
         decoder_input_ids,
         past_key_values=None,
         attention_mask=None,
-        head_mask=None,
-        decoder_head_mask=None,
-        cross_attn_head_mask=None,
         use_cache=None,
         encoder_outputs=None,
         **kwargs,
@@ -3695,9 +3545,6 @@ class SeamlessM4TForTextToSpeech(SeamlessM4TPreTrainedModel):
             "past_key_values": past_key_values,
             "decoder_input_ids": decoder_input_ids,
             "attention_mask": attention_mask,
-            "head_mask": head_mask,
-            "decoder_head_mask": decoder_head_mask,
-            "cross_attn_head_mask": cross_attn_head_mask,
             "use_cache": use_cache,
         }
 
@@ -3769,9 +3616,6 @@ class SeamlessM4TForSpeechToSpeech(SeamlessM4TPreTrainedModel):
         attention_mask: Optional[torch.Tensor] = None,
         decoder_input_ids: Optional[torch.LongTensor] = None,
         decoder_attention_mask: Optional[torch.LongTensor] = None,
-        head_mask: Optional[torch.Tensor] = None,
-        decoder_head_mask: Optional[torch.Tensor] = None,
-        cross_attn_head_mask: Optional[torch.Tensor] = None,
         encoder_outputs: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
@@ -3809,7 +3653,6 @@ class SeamlessM4TForSpeechToSpeech(SeamlessM4TPreTrainedModel):
             encoder_outputs = self.speech_encoder(
                 input_features=input_features,
                 attention_mask=attention_mask,
-                head_mask=head_mask,
                 inputs_embeds=inputs_embeds,
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
@@ -3838,8 +3681,6 @@ class SeamlessM4TForSpeechToSpeech(SeamlessM4TPreTrainedModel):
             attention_mask=decoder_attention_mask,
             encoder_hidden_states=encoder_outputs[0],
             encoder_attention_mask=encoder_attention_mask,
-            head_mask=decoder_head_mask,
-            cross_attn_head_mask=cross_attn_head_mask,
             past_key_values=past_key_values,
             inputs_embeds=decoder_inputs_embeds,
             use_cache=use_cache,
@@ -3999,8 +3840,6 @@ class SeamlessM4TForSpeechToSpeech(SeamlessM4TPreTrainedModel):
             input_ids=sequences,
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=attention_mask,
-            head_mask=kwargs_text.get("decoder_head_mask"),
-            cross_attn_head_mask=kwargs_text.get("cross_attn_head_mask"),
         ).last_hidden_state
 
         pad_token_id = self.generation_config.pad_token_id
@@ -4063,9 +3902,6 @@ class SeamlessM4TForSpeechToSpeech(SeamlessM4TPreTrainedModel):
         decoder_input_ids,
         past_key_values=None,
         attention_mask=None,
-        head_mask=None,
-        decoder_head_mask=None,
-        cross_attn_head_mask=None,
         use_cache=None,
         encoder_outputs=None,
         **kwargs,
@@ -4080,9 +3916,6 @@ class SeamlessM4TForSpeechToSpeech(SeamlessM4TPreTrainedModel):
             "past_key_values": past_key_values,
             "decoder_input_ids": decoder_input_ids,
             "attention_mask": attention_mask,
-            "head_mask": head_mask,
-            "decoder_head_mask": decoder_head_mask,
-            "cross_attn_head_mask": cross_attn_head_mask,
             "use_cache": use_cache,
         }
 
@@ -4167,9 +4000,6 @@ class SeamlessM4TModel(SeamlessM4TPreTrainedModel):
         attention_mask: Optional[torch.Tensor] = None,
         decoder_input_ids: Optional[torch.LongTensor] = None,
         decoder_attention_mask: Optional[torch.LongTensor] = None,
-        head_mask: Optional[torch.Tensor] = None,
-        decoder_head_mask: Optional[torch.Tensor] = None,
-        cross_attn_head_mask: Optional[torch.Tensor] = None,
         encoder_outputs: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
@@ -4242,7 +4072,6 @@ class SeamlessM4TModel(SeamlessM4TPreTrainedModel):
             encoder_outputs = self.text_encoder(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                head_mask=head_mask,
                 inputs_embeds=inputs_embeds,
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
@@ -4272,8 +4101,6 @@ class SeamlessM4TModel(SeamlessM4TPreTrainedModel):
             attention_mask=decoder_attention_mask,
             encoder_hidden_states=encoder_outputs[0],
             encoder_attention_mask=encoder_attention_mask,
-            head_mask=decoder_head_mask,
-            cross_attn_head_mask=cross_attn_head_mask,
             past_key_values=past_key_values,
             inputs_embeds=decoder_inputs_embeds,
             use_cache=use_cache,
@@ -4477,8 +4304,6 @@ class SeamlessM4TModel(SeamlessM4TPreTrainedModel):
             input_ids=sequences,
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=attention_mask,
-            head_mask=kwargs_text.get("decoder_head_mask"),
-            cross_attn_head_mask=kwargs_text.get("cross_attn_head_mask"),
         ).last_hidden_state
 
         pad_token_id = self.generation_config.pad_token_id
@@ -4531,9 +4356,6 @@ class SeamlessM4TModel(SeamlessM4TPreTrainedModel):
         decoder_input_ids,
         past_key_values=None,
         attention_mask=None,
-        head_mask=None,
-        decoder_head_mask=None,
-        cross_attn_head_mask=None,
         use_cache=None,
         encoder_outputs=None,
         **kwargs,
@@ -4548,9 +4370,6 @@ class SeamlessM4TModel(SeamlessM4TPreTrainedModel):
             "past_key_values": past_key_values,
             "decoder_input_ids": decoder_input_ids,
             "attention_mask": attention_mask,
-            "head_mask": head_mask,
-            "decoder_head_mask": decoder_head_mask,
-            "cross_attn_head_mask": cross_attn_head_mask,
             "use_cache": use_cache,
         }
 

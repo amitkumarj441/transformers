@@ -44,10 +44,8 @@ _CHECKPOINT_FOR_DOC = "Tanrei/GPTSAN-japanese"
 # This dict contains ids and associated url
 # for the pretrained weights provided with the models
 ####################################################
-GPTSAN_JAPANESE_PRETRAINED_MODEL_ARCHIVE_LIST = [
-    "Tanrei/GPTSAN-japanese",
-    # See all GPTSAN-japanese models at https://huggingface.co/models?filter=gptsan-japanese
-]
+
+from ..deprecated._archive_maps import GPTSAN_JAPANESE_PRETRAINED_MODEL_ARCHIVE_LIST  # noqa: F401, E402
 
 
 # Copied from transformers.models.switch_transformers.modeling_switch_transformers.router_z_loss_func
@@ -187,18 +185,9 @@ class GPTSanJapaneseTop1Router(nn.Module):
         self.input_dtype = hidden_states.dtype
         hidden_states = hidden_states.to(self.dtype)
 
-        if self.jitter_noise > 0:
-            # Get the lower and upper bound of the uniform distribution
-            # Adapted from: https://stackoverflow.com/questions/44328530/how-to-get-a-uniform-distribution-in-a-range-r1-r2-in-pytorch
-            distrib_lower_bound = 1.0 - self.jitter_noise
-            distrib_upper_bound = 1.0 + self.jitter_noise
-
-            uniform_distrib = torch.rand(hidden_states.shape, device=hidden_states.device, dtype=self.dtype)
-            uniform_distrib = uniform_distrib * (distrib_lower_bound - distrib_upper_bound)
-
-            uniform_distrib = uniform_distrib + distrib_upper_bound
+        if self.training and self.jitter_noise > 0:
             # Multiply the token inputs by the uniform distribution - adding some noise
-            hidden_states *= uniform_distrib
+            hidden_states *= torch.empty_like(hidden_states).uniform_(1.0 - self.jitter_noise, 1.0 + self.jitter_noise)
 
         # Shape: [num_groups, tokens_per_group, num_experts]
         self._cast_classifier()
